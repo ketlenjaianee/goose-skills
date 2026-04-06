@@ -58,6 +58,20 @@ function renderCursorRule(slug, skillContent) {
   ].join('\n');
 }
 
+function placeForClaude(sourceSkillDir, projectDir) {
+  const slug = path.basename(sourceSkillDir);
+  const skillPath = path.join(sourceSkillDir, 'SKILL.md');
+  if (!fs.existsSync(skillPath)) {
+    throw new Error(`Missing SKILL.md at ${skillPath}`);
+  }
+
+  const skillsDir = path.join(projectDir, '.claude', 'skills');
+  fs.mkdirSync(skillsDir, { recursive: true });
+  const destPath = path.join(skillsDir, `${slug}.md`);
+  fs.copyFileSync(skillPath, destPath);
+  return destPath;
+}
+
 function placeForCodex(sourceSkillDir, codexSkillsRoot) {
   const slug = path.basename(sourceSkillDir);
   const destinationDir = path.join(codexSkillsRoot, slug);
@@ -87,6 +101,7 @@ function placeForCursor(sourceSkillDir, projectDir) {
 module.exports = {
   parseInstallOptions,
   renderCursorRule,
+  placeForClaude,
   placeForCodex,
   placeForCursor,
 };

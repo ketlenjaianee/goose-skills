@@ -7,6 +7,7 @@ const path = require('node:path');
 const {
   parseInstallOptions,
   renderCursorRule,
+  placeForClaude,
   placeForCodex,
   placeForCursor,
 } = require('../bin/lib/targets');
@@ -48,6 +49,42 @@ test('renderCursorRule wraps skill content for cursor rules', () => {
   assert.match(output, /^---\ndescription:/);
   assert.match(output, /Always apply this rule/);
   assert.match(output, /# Skill heading/);
+});
+
+test('placeForClaude copies SKILL.md to .claude/skills/<slug>.md in project', () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'goose-skills-test-'));
+  const sourceDir = path.join(tmp, 'cache', 'google-ad-scraper');
+  const projectDir = path.join(tmp, 'project');
+  fs.mkdirSync(sourceDir, { recursive: true });
+  fs.mkdirSync(projectDir, { recursive: true });
+  fs.writeFileSync(path.join(sourceDir, 'SKILL.md'), '# skill body');
+
+  const destPath = placeForClaude(sourceDir, projectDir);
+  assert.equal(destPath, path.join(projectDir, '.claude', 'skills', 'google-ad-scraper.md'));
+  assert.ok(fs.existsSync(destPath));
+  assert.match(fs.readFileSync(destPath, 'utf8'), /# skill body/);
+});
+
+test('placeForClaude creates .claude/skills directory if missing', () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'goose-skills-test-'));
+  const sourceDir = path.join(tmp, 'cache', 'my-skill');
+  const projectDir = path.join(tmp, 'fresh-project');
+  fs.mkdirSync(sourceDir, { recursive: true });
+  fs.mkdirSync(projectDir, { recursive: true });
+  fs.writeFileSync(path.join(sourceDir, 'SKILL.md'), '# my skill');
+
+  placeForClaude(sourceDir, projectDir);
+  assert.ok(fs.existsSync(path.join(projectDir, '.claude', 'skills', 'my-skill.md')));
+});
+
+test('placeForClaude throws when SKILL.md is missing', () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'goose-skills-test-'));
+  const sourceDir = path.join(tmp, 'cache', 'empty-skill');
+  const projectDir = path.join(tmp, 'project');
+  fs.mkdirSync(sourceDir, { recursive: true });
+  fs.mkdirSync(projectDir, { recursive: true });
+
+  assert.throws(() => placeForClaude(sourceDir, projectDir), /Missing SKILL\.md/);
 });
 
 test('placeForCodex copies skill dir to codex path', () => {

@@ -16,6 +16,7 @@ const fs = require('fs');
 const path = require('path');
 const {
   parseInstallOptions,
+  placeForClaude,
   placeForCodex,
   placeForCursor,
 } = require('./lib/targets');
@@ -137,9 +138,10 @@ async function installPack(pack, options) {
     console.log('\nNext step (Cursor):');
     console.log('  Open Cursor in that project to load the new rules.');
   } else {
-    console.log('\nInstalled to:');
+    console.log('\nClaude Code:');
     for (const subSkill of pack.skills) {
-      console.log(`  ${getInstallDir(subSkill.slug)}`);
+      const claudeSkill = placeForClaude(getInstallDir(subSkill.slug), process.cwd());
+      console.log(`  ${claudeSkill}`);
     }
   }
 }
@@ -189,7 +191,8 @@ async function installSkill(options) {
     return;
   }
 
-  console.log(`\nInstalled to: ${installDir}`);
+  const claudeSkill = placeForClaude(installDir, process.cwd());
+  console.log(`\nClaude Code: ${claudeSkill}`);
 }
 
 async function listSkills() {
