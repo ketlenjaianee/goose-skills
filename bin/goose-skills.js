@@ -7,6 +7,7 @@
  *
  * Usage:
  *   npx goose-skills install <slug> [--claude|--codex|--cursor] [--project-dir <path>]
+ *   npx goose-skills recommend [--project-dir <path>]  # AI-powered skill recommendations
  *   npx goose-skills list             # List available skills
  *   npx goose-skills info <slug>      # Show skill details
  */
@@ -273,6 +274,112 @@ async function showInfo(slug) {
   console.log(`GitHub: https://github.com/${REPO}/tree/${BRANCH}/${skill.path}`);
 }
 
+function gatherProjectContext(projectDir) {
+  const context = [];
+
+  // package.json
+  const pkgPath = path.join(projectDir, 'package.json');
+  if (fs.existsSync(pkgPath)) {
+    try {
+      const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+      const summary = {
+        name: pkg.name,
+        description: pkg.description,
+        keywords: pkg.keywords,
+        scripts: pkg.scripts ? Object.keys(pkg.scripts) : [],
+        dependencies: Object.keys(pkg.dependencies || {}),
+        devDependencies: Object.keys(pkg.devDependencies || {}),
+      };
+      context.push(`package.json:\n${JSON.stringify(summary, null, 2)}`);
+    } catch (_) { /* ignore */ }
+  }
+
+  // README.md
+  for (const name of ['README.md', 'README.rst', 'README.txt', 'readme.md']) {
+    const readmePath = path.join(projectDir, name);
+    if (fs.existsSync(readmePath)) {
+      const content = fs.readFileSync(readmePath, 'utf8').slice(0, 3000);
+      context.push(`${name} (first 3000 chars):\n${content}`);
+      break;
+    }
+  }
+
+  return context.join('\n\n---\n\n') || '(no project context found)';
+}
+
+function buildSkillCatalog(index) {
+  const lines = [];
+  for (const skill of index.skills) {
+    lines.push(`- ${skill.slug} [${skill.category}]: ${skill.description} (tags: ${(skill.tags || []).join(', ')})`);
+  }
+  for (const pack of (index.packs || [])) {
+    lines.push(`- ${pack.slug} [pack]: ${pack.description} (tags: ${(pack.tags || []).join(', ')})`);
+  }
+  return lines.join('\n');
+}
+
+async function recommend(projectDir) {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) {
+    console.error('Error: ANTHROPIC_API_KEY environment variable is not set.');
+    console.error('Get your API key at https://console.anthropic.com/');
+    process.exit(1);
+  }
+
+  let Anthropic;
+  try {
+    Anthropic = require('@anthropic-ai/sdk');
+  } catch (_) {
+    console.error('Error: @anthropic-ai/sdk is not installed. Run: npm install @anthropic-ai/sdk');
+    process.exit(1);
+  }
+
+  const client = new Anthropic.default({ apiKey });
+
+  console.log('Analyzing project...\n');
+  const [projectContext, index] = await Promise.all([
+    Promise.resolve(gatherProjectContext(projectDir)),
+    fetchIndex(),
+  ]);
+
+  const skillCatalog = buildSkillCatalog(index);
+
+  const prompt = `You are a GTM engineering advisor. A user wants to know which goose-skills are most relevant for their project.
+
+Here is their project context:
+<project>
+${projectContext}
+</project>
+
+Here is the full catalog of available goose-skills:
+<skills>
+${skillCatalog}
+</skills>
+
+Recommend the 5 most relevant skills for this project. For each recommendation:
+1. State the skill slug
+2. Explain in 1-2 sentences why it's relevant to THIS specific project
+3. Show the install command
+
+Format each recommendation clearly. Be specific — reference actual details from the project context.
+If the project context is sparse, recommend broadly useful GTM skills and say so.`;
+
+  const stream = await client.messages.stream({
+    model: 'claude-opus-4-6',
+    max_tokens: 2048,
+    thinking: { type: 'adaptive' },
+    messages: [{ role: 'user', content: prompt }],
+  });
+
+  console.log('Recommended skills for your project:\n');
+  for await (const event of stream) {
+    if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
+      process.stdout.write(event.delta.text);
+    }
+  }
+  console.log('\n');
+}
+
 // CLI routing
 const [,, command, ...args] = process.argv;
 
@@ -290,6 +397,24 @@ switch (command) {
       process.exit(1);
     }
     break;
+  case 'recommend': {
+    let projectDir = process.cwd();
+    for (let i = 0; i < args.length; i++) {
+      if (args[i] === '--project-dir') {
+        if (!args[i + 1] || args[i + 1].startsWith('--')) {
+          console.error('Option --project-dir requires a path argument.');
+          process.exit(1);
+        }
+        projectDir = path.resolve(args[i + 1]);
+        i++;
+      }
+    }
+    recommend(projectDir).catch((err) => {
+      console.error(err.message);
+      process.exit(1);
+    });
+    break;
+  }
   case 'list':
     listSkills();
     break;
@@ -304,10 +429,12 @@ switch (command) {
     console.log('goose-skills — GTM skills for Claude Code\n');
     console.log('Commands:');
     console.log('  install <slug>   Install a skill or skill pack');
+    console.log('  recommend        AI-powered skill recommendations for your project');
     console.log('  list             List available skills and packs');
     console.log('  info <slug>      Show skill or pack details');
     console.log('\nExamples:');
     console.log('  npx goose-skills list');
+    console.log('  npx goose-skills recommend                          # Needs ANTHROPIC_API_KEY');
     console.log('  npx goose-skills install reddit-scraper');
     console.log('  npx goose-skills install reddit-scraper --codex');
     console.log('  npx goose-skills install reddit-scraper --cursor --project-dir /path/to/project');
